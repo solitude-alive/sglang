@@ -1,0 +1,41 @@
+ARG CUDA_VERSION=12.9.1
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn-devel-ubuntu24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CUDA_HOME=/usr/local/cuda \
+    PATH="${PATH}:/usr/local/cuda/bin"
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common wget \
+    && add-apt-repository ppa:deadsnakes/ppa -y \
+    && apt-get install -y --no-install-recommends \
+    python3.12-full python3.12-dev git \
+    build-essential cmake ninja-build \
+    libopenmpi-dev libnuma1 libnuma-dev \
+    libibverbs-dev librdmacm1 ffmpeg \
+    && update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.12 2 \
+    && update-alternatives --set python3 /usr/bin/python3.12 \
+    && ln -sf /usr/bin/python3.12 /usr/bin/python \
+    && wget -q https://bootstrap.pypa.io/get-pip.py \
+    && python3 get-pip.py --break-system-packages \
+    && rm get-pip.py \
+    && python3 -m pip config set global.break-system-packages true \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /sgl-workspace/sglang
+
+# Install dependencies first (cache-friendly: only rebuilds when pyproject.toml changes)
+COPY python/pyproject.toml /tmp/sglang_deps/python/pyproject.toml
+RUN cd /tmp/sglang_deps/python \
+    && mkdir -p sglang && touch sglang/__init__.py \
+    && echo '__version__ = "0.0.0"' > sglang/version.py \
+    && touch README.md && touch LICENSE \
+    && python3 -m pip install ".[all]" \
+    && rm -rf /tmp/sglang_deps
+
+COPY . /sgl-workspace/sglang
+
+RUN python3 -m pip install --no-deps -e "python[all]"
+
+# Override transformers to latest
+RUN python3 -m pip install --upgrade --force-reinstall transformers
